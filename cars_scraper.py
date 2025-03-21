@@ -3,6 +3,10 @@ import  os,time,sys
 from bs4 import BeautifulSoup as bs
 from selenium import webdriver
 import pandas as pd
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+os.makedirs("data",exist_ok=True)
 
 # display progress message
 def update_message(message):
@@ -84,8 +88,51 @@ def get_total_pages(input_url,driver):
     return total_pages
 
 
-# scraping data from cars.com. this is the scraping main function
-def data_collect(url):
+def get_text(soup, selector=None, tag=None, attr=None):
+    """Extracts text or attribute value from a tag safely."""
+    try:
+        if tag:
+            return tag.get(attr, None) if attr else tag.text.strip() if tag.text else None
+        element = soup.select_one(selector) if selector else None
+        return element.get(attr, None) if attr else element.text.strip() if element else None
+    except Exception as e:
+        print(f"Error extracting text: {e}")
+        return None
+
+
+def scrape_page(url, driver):
+    """Loads a page and returns parsed HTML."""
+    try:
+        driver.get(url)
+        WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, "contact-by-phone")))
+    except:
+        pass
+    return bs(driver.page_source, "html.parser")
+
+def extract_data(tag):
+    """Extracts structured data from a listing."""
+    try:
+        div_tag = tag.find_parent("div").find_parent("div")
+        price = tag.get("data-price", None)
+        if price is None:
+            price = get_text(div_tag, "span.primary-price")
+        return {
+            "Id": tag.get("data-listing-id", None),
+            "Product URL": f"https://www.cars.com/vehicledetail/{tag.get('data-listing-id', '')}",
+            "Title": get_text(div_tag, "h2.title"),
+            "Make": tag.get("data-make", None),
+            "Model": tag.get("data-model", None),
+            "Year": tag.get("data-year", None),
+            "Trim": tag.get("data-trim", None),
+            "Price": price,
+            "Stock Type": get_text(div_tag, "p.stock-type"),
+            "Seller Name": get_text(div_tag, "div.dealer-name"),
+            "Phone Number": tag.get("href", "").split("tel:")[-1].strip().replace("+1-", "") or None
+        }
+    except:
+        return None
+
+def get_data(url):
     """Scrapes data from the cars.com website. The data is then stored in a pandas dataframe. The dataframe is then written to a csv file. 
 
     Args:
@@ -103,115 +150,28 @@ def data_collect(url):
     driver = webdriver.Chrome()
 
     total_pages=get_total_pages(input_url,driver)
+    page = 1
+    scraped_data = []
 
-    SCRAPED_DATA=[]
-
-    page=1
-    while page<=total_pages:
-
-        # scraping progress show
-        update_message(f"Scraping Progress: {page} out of total pages {total_pages}")
-
-        scrape_url=f"{input_url}&page_size=100&page={page}"
+    while page <= total_pages:
+        update_message(f"Progress: {page} out of pages {total_pages}")
         try:
-            driver.get(scrape_url)
-            time.sleep(1.5)
+            soup = scrape_page(f"{input_url}&page_size=100&page={page}", driver)
+
+            for tag in soup.find_all("spark-button", class_="contact-by-phone"):
+                data = extract_data(tag)
+                if data:
+                    scraped_data.append(data)
         except:
             pass
 
-        try:
-            soup=bs(driver.page_source,"html.parser")
-        except:
-            pass
-        try:
-            spark_button_tags=soup.find_all("spark-button",attrs={"class":"contact-by-phone"})
-        except:
-            spark_button_tags=[]
-        if spark_button_tags is None:
-            page+=1
-            continue
-        if len(spark_button_tags)==0:
-            page+=1
-            continue
+        page += 1
 
-        for tag in spark_button_tags:
-            try:
-                make=tag["data-make"]
-            except:
-                make=None
-            try:
-                model=tag["data-model"]
-            except:
-                model=None
-            try:
-                year=tag["data-year"]
-            except:
-                year=None
-            try:
-                trim=tag["data-trim"]
-            except:
-                trim=None
-            try:
-                price=tag["data-price"]
-            except:
-                price=None
-            try:
-                phone=tag["href"].split("tel:")[-1].strip()
-                phone=str(phone)
-            except:
-                phone=None
-            try:
-                phone=phone.replace("+1-","").strip()
-            except:
-                pass
-            try:
-                data_listing_id=tag["data-listing-id"]
-            except:
-                data_listing_id=None
-            try:
-                div_tag=tag.find_parent("div").find_parent("div").find("div",attrs={"class":"vehicle-details"})
-            except:
-                pass
-            try:
-                stock_type=div_tag.find("p",attrs={"class":"stock-type"}).text.strip()
-            except:
-                stock_type=None
-            try:
-                title=div_tag.find("h2",attrs={"class":"title"}).text.strip()
-            except:
-                title=None
-            try:
-                price=div_tag.find("span",attrs={"data-qa":"primary-price"}).text.strip()
-            except:
-                price=None
-            try:
-                seller_name=div_tag.find("div",attrs={"class":"dealer-name"}).text.strip()
-            except:
-                seller_name=None
 
-            data={
-                "Id":data_listing_id,
-                "Product URL":f"https://www.cars.com/vehicledetail/{data_listing_id}",
-                "Title":title,
-                "Make":make,
-                "Model":model,
-                "Year":year,
-                "Trim":trim,
-                "Price":price,
-                "Stock Type":stock_type,
-                "Price":price,
-                "Seller Name":seller_name,
-                "Phone Number":phone,
-            }
-
-            SCRAPED_DATA.append(data)
-
-        page+=1
-
-    print(f"\nTotal scraped data: {len(SCRAPED_DATA)}")
+    print(f"\nTotal scraped data: {len(scraped_data)}")
     date_str=time.strftime("%Y_%m_%d")
-    filename=f"cars_data_{date_str}.csv"
-    df=pd.DataFrame(SCRAPED_DATA)
+    filename=os.path.join("data",f"cars_data_{date_str}.csv")
+    df=pd.DataFrame(scraped_data)
     df.drop_duplicates(inplace=True,ignore_index=True,subset=["Id"])
     print("After removing duplicates, total data: ",len(df))
     df.to_csv(filename,index=False)
@@ -227,7 +187,7 @@ if __name__ == '__main__':
     if len(url)==0:
         print("Please enter valid url!")
         os._exit(0)
-    data_collect(url)
+    get_data(url)
 
     print("\nScraping is Successfully Completed!\n")
 
