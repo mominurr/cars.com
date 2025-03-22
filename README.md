@@ -9,6 +9,20 @@ The script efficiently handles pagination, collects data from multiple pages, an
 
 ---
 
+# ⚠️ **Important Notice: Business Use Only** ⚠️
+
+This repository is for **demonstration purposes only** and **not for free use**. It showcases my professional expertise in **web scraping** and **automation**.
+
+🚫 **Unauthorized use, redistribution, or modification is strictly prohibited.**
+
+💼 **For custom web scraping and automation solutions, please contact me directly for professional, business-focused services.**
+
+📩 [Get in Touch](https://mominur.dev)
+
+
+
+---
+
 ## Features
 
 - **Web Automation**: Automates navigation and page interactions with `Selenium`.
